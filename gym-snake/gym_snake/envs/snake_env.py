@@ -6,16 +6,19 @@ from gym import spaces
 import tkinter as tk
 
 class SnakeEnv(gym.Env):
+    """OpenAI gym environment for Snake, using the snake_backend package"""
     
     action_decoder = {0: (0,-1), 1: (1,0), 2: (0,1), 3: (-1,0)}
 
     def __init__(self):
         super(SnakeEnv, self).__init__()
         
+        # Initialize Tk for rendering
         self.root = tk.Tk()
         self.canvas = tk.Canvas(self.root, width=60, height=60, bg='blue')
         self.canvas.pack()
         
+        # Initialize game
         self.game = snake_backend.GameOfSnake([(0,0), (0,1), (0,2)], hasFrontEnd=False)
 
         self.action_space = spaces.Discrete(4)
