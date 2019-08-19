@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Frontend and Backend for the game snake
+Frontend and Backend for the game snake, this file can be played as is by executing it with python, or it can be used by a different front end or in our case of interest, an openai gym environment.
 """
 
 import tkinter as tk
@@ -160,7 +160,7 @@ class GameOfSnake:
     
     
 def main():
-    """create a game and bind events to the frontend"""
+    """create a game and bind events to the frontend, to play this game as-is."""
       
     game = GameOfSnake([(0,0), (0,1), (0,2)])
     
@@ -171,6 +171,7 @@ def main():
     game.frontend.root.mainloop()
     
 if __name__ == '__main__':
+    """if this py-file is exectued directly"""
     main()
         
         

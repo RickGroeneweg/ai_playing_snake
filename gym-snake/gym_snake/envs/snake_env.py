@@ -15,7 +15,7 @@ class SnakeEnv(gym.Env):
         
         # Initialize Tk for rendering
         self.root = tk.Tk()
-        self.canvas = tk.Canvas(self.root, width=60, height=60, bg='blue')
+        self.canvas = tk.Canvas(self.root, width=180, height=180, bg='blue')
         self.canvas.pack()
         
         # Initialize game
@@ -45,9 +45,9 @@ class SnakeEnv(gym.Env):
             for x in range(width):
                 num = self.state()[y, x]
                 if num > 0:
-                    self.canvas.create_oval(x*10, y*10, x*10+10, y*10+10, fill = 'red')
+                    self.canvas.create_oval(x*30, y*30, x*30+30, y*30+30, fill = 'red')
                 elif num == -1:
-                    self.canvas.create_oval(x*10, y*10, x*10+10, y*10+10, fill = 'green')
+                    self.canvas.create_oval(x*30, y*30, x*30+30, y*30+30, fill = 'green')
         self.root.update()
         
         
