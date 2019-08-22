@@ -13,6 +13,8 @@
 # Explanation: -v and -e flags are needed to couply the host display to the docker image and to
 #                        mount the X11 socket. This only works if the host is a linux machine
 #
+# Do you have a NVIDIA GPU at your disposal? at the `--gpus all` option to the `docker run` command for speed-ups
+#
 #####################################################################################
 
 FROM pytorch/pytorch

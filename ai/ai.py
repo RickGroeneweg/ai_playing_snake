@@ -1,7 +1,7 @@
 """
-Reinforcement learning agent for Snake
+Reinforcement learning script for Snake
 """
-from collections import namedtuple
+
 import random
 import math
 from itertools import count
@@ -9,103 +9,28 @@ from itertools import count
 
 
 import gym
-import gym_snake
+import gym_snake #s omehow we do need this import
 
 
 # pyTorch imports
 import torch
-import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+
+from ReplayMemory import ReplayMemory, Transition
+from DQN import DQN
 
 env = gym.make('snake-v0')
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"using device: {device}")
 
-
-
-
-# type alias
-Transition = namedtuple('Transition',
-                        ('state', 'action', 'next_state', 'reward'))
-
-
-class ReplayMemory(object):
-    """
-    memory for the agent, stores trasitions to train the NN with.
-    basically the same code as the dqn example of the pyTorch docs
-    """
-
-    def __init__(self, capacity):
-        self.capacity = capacity
-        self.memory = []
-        self.rewards = [] # I seperated different kinds of events to create a more balanced replay learning
-        self.punishments = []
-        self.neutral = []
-        self.position = 0
-        
-    def all_memories(self):
-        return self.rewards + self.punishments + self.neutral
-        
-    def longest_memory(self):
-        """return the memory list which is longest"""
-        memory_lists = [self.rewards, self.punishments, self.neutral]
-        max_len = 0
-        at_idx = 0
-        for idx, ls in enumerate(memory_lists):
-            if len(ls)>= max_len:
-                max_len = len(ls)
-                at_idx = idx
-        return memory_lists[at_idx]
-          
-        
-    def push(self, *args):
-        """Saves a transition."""
-        trans = Transition(*args)
-        
-        if trans.reward == 100:
-            self.rewards.append(trans)
-        elif trans.reward < 0:
-            self.punishments.append(trans)
-        else:
-            self.neutral.append(trans)
-            
-        if len(self) > self.capacity:
-            self.longest_memory().pop(0)
-            assert len(self) == self.capacity
-
-    def sample(self, batch_size):
-        return random.sample(self.all_memories(), batch_size)
-
-    def __len__(self):
-        return len(self.rewards) + len(self.punishments) + len(self.neutral)
     
+
     
-class DQN(nn.Module):
-    """neural network used by the DQN agent"""
+steps_done = 0 # ugly global counter
 
-    def __init__(self, h, w, outputs):
-        super(DQN, self).__init__()
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=3, stride=1)
-        
-        linear_input_size = 4*4*10
-        self.l1 = nn.Linear(linear_input_size, 80)
-        self.l2 = nn.Linear(80, 40)
-        
-        self.head = nn.Linear(40, outputs)
-
-    # Called with either one element to determine next action, or a batch
-    # during optimization. Returns tensor([[left0exp,right0exp]...]).
-    def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.l1(x.view(x.size(0), -1)))
-        x = F.relu(self.l2(x))
-        return self.head(x)
-    
-steps_done = 0
-
-
-BATCH_SIZE = 1000
+# meta parameters
+BATCH_SIZE = 10
 GAMMA = 0.8
 EPS_START = 0.9
 EPS_END = 0.0
@@ -115,6 +40,7 @@ TARGET_UPDATE = 10
 # Get number of actions from gym action space
 n_actions = env.action_space.n
 
+# here we define the neural nets
 policy_net = DQN(10, 10, n_actions).to(device)
 target_net = DQN(10, 10, n_actions).to(device)
 target_net.load_state_dict(policy_net.state_dict())
@@ -125,90 +51,100 @@ memory = ReplayMemory(10000)
 
 
 def select_action(state):
-  
+    
     global steps_done
     sample = random.random()
     eps_threshold = EPS_END + (EPS_START - EPS_END) * \
         math.exp(-1. * steps_done / EPS_DECAY)
     steps_done += 1
     if sample > eps_threshold:
-        #exploitation
-        
-        
-        with torch.no_grad():
-            #state = torch.from_numpy(env.state()).unsqueeze(0).unsqueeze(0).to(device, dtype=torch.float)
-            # t.max(1) will return largest column value of each row.
-            # second column on max result is index of where max element was
-            # found, so we pick action with the larger expected reward.
-            return policy_net(state).max(1)[1].view(1, 1)
+       return _select_action_exploitation(state)
     else:
-        #exploration
-        return torch.tensor([[random.randrange(n_actions)]], device=device, dtype=torch.long)
+       return _select_action_exploration()
+        
+
+
+def _select_action_exploitation(state):
+    """run the state through the policy network to get an action"""
+    
+    hunger, tensor = state
+    hunger = torch.Tensor([[hunger]]).to(device, dtype=torch.float)
+    
+    with torch.no_grad():
+        #state = torch.from_numpy(env.state()).unsqueeze(0).unsqueeze(0).to(device, dtype=torch.float)
+        # t.max(1) will return largest column value of each row.
+        # second column on max result is index of where max element was
+        # found, so we pick action with the larger expected reward.
+        return policy_net(tensor, hunger).max(1)[1].view(1, 1)
+
+def _select_action_exploration():
+    """just return a random action from the action space"""
+    return torch.tensor([[random.randrange(n_actions)]], device=device, dtype=torch.long)
+    
 
 
 episode_durations = []    
   
 
-def optimize_model():
-    if len(memory) < BATCH_SIZE :
+def optimize_model(memory, optimizer, batch_size= BATCH_SIZE):
+    if len(memory) < batch_size:
         return
     transitions = memory.sample(BATCH_SIZE)
-    # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
-    # detailed explanation). This converts batch-array of Transitions
-    # to Transition of batch-arrays.
-    batch = Transition(*zip(*transitions))
-
-    # Compute a mask of non-final states and concatenate the batch elements
-    # (a final state would've been the one after which simulation ended)
-    non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
-                                          batch.next_state)), device=device, dtype=torch.uint8)
-    non_final_next_states = torch.cat([s for s in batch.next_state
-                                                if s is not None])
-    state_batch = torch.cat(batch.state)
-    action_batch = torch.cat(batch.action)
-    reward_batch = torch.cat(batch.reward).to(device, dtype=torch.float)
-
-    # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
-    # columns of actions taken. These are the actions which would've been taken
-    # for each batch state according to policy_net
-    state_action_values = policy_net(state_batch).gather(1, action_batch)
-
-    # Compute V(s_{t+1}) for all next states.
-    # Expected values of actions for non_final_next_states are computed based
-    # on the "older" target_net; selecting their best reward with max(1)[0].
-    # This is merged based on the mask, such that we'll have either the expected
-    # state value or 0 in case the state was final.
-    next_state_values = torch.zeros(BATCH_SIZE, device=device, dtype=torch.float)
-    next_state_values[non_final_mask] = target_net(non_final_next_states).max(1)[0].detach()
-    # Compute the expected Q values
-    expected_state_action_values = (next_state_values * GAMMA) + reward_batch
-
-    # Compute Huber loss
-    loss = F.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1))
-
-    # Optimize the model
-    optimizer.zero_grad()
-    loss.backward()
-    for param in policy_net.parameters():
-        param.grad.data.clamp_(-1, 1)
-    optimizer.step()    
+    
+    for transition in transitions:
+        hunger, world = transition.state
+        hunger = torch.Tensor([[hunger]]).to(device, dtype=torch.float) #ugly copy-paste..
+        
+        Q_value = policy_net(world, hunger).gather(1, transition.action)
+        Q_bellman = estimated_Q(transition.reward, transition.next_state)
+        
+        loss = F.smooth_l1_loss(Q_value, Q_bellman)
+        
+        # Optimize the model
+        optimizer.zero_grad()
+        loss.backward()
+        for param in policy_net.parameters():
+            param.grad.data.clamp_(-1, 1)
+        optimizer.step()
+    
+def estimated_Q(reward, next_state: tuple):
+    reward = reward.to(dtype=torch.float)
+    if next_state is None:
+        # the game has ended, so the Q value is just the reward
+        return reward
+    
+    else:
+        with torch.no_grad():  
+            # we are not training the target_net, we are updating it with paramters form the policy_net, 
+            # so no differentiation is needed here.
+            next_expected_Q = target_net(next_state[1], next_state[0]).max(1)[0]
+            return reward + GAMMA*next_expected_Q
     
     
-def main():
-    num_episodes = 1_000_000
+def main(
+        num_episodes = 1_000_000
+        ):
+    
     #scores = []
     for i_episode in range(num_episodes):
         # Initialize the environment and state
         env.reset()
     
         state = env.state()
-        state = torch.from_numpy(state).unsqueeze(0).unsqueeze(0).to(device, dtype=torch.float)
+        hunger, tens = state
+        tens = torch.from_numpy(tens).unsqueeze(0).unsqueeze(0).to(device, dtype=torch.float)
+        hunger = torch.Tensor([[hunger]]).to(device, dtype=torch.float) # ugly copy paste
+        state = (hunger, tens)
+        
         for t in count():
             # Select and perform an action
             action = select_action(state)
 
             next_state, reward, done, _ = env.step(action.item())
-            next_state = torch.from_numpy(next_state).unsqueeze(0).unsqueeze(0).to(device, dtype=torch.float)
+            if next_state is not None:
+                next_state_tensor = torch.from_numpy(next_state[1]).unsqueeze(0).unsqueeze(0).to(device, dtype=torch.float)
+                hunger = torch.Tensor([[hunger]]).to(device, dtype=torch.float)
+                next_state = hunger, next_state_tensor
             if i_episode % 6 == 0:
                 env.render()
 
@@ -221,7 +157,7 @@ def main():
             state = next_state
 
             # Perform one step of the optimization (on the target network)
-            optimize_model()
+            optimize_model(memory, optimizer)
             if done:
                 episode_durations.append(t + 1)
                 break

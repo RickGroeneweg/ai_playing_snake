@@ -15,7 +15,7 @@ class SnakeEnv(gym.Env):
         
         # Initialize Tk for rendering
         self.root = tk.Tk()
-        self.canvas = tk.Canvas(self.root, width=180, height=180, bg='blue')
+        self.canvas = tk.Canvas(self.root, width=240, height=240, bg='blue')
         self.canvas.pack()
         
         # Initialize game
@@ -31,7 +31,8 @@ class SnakeEnv(gym.Env):
         return obs, rew, done, ""
     
     def state(self):
-        return self.game.array()
+        """returns a tuple of hunger: int and screen: np.array"""
+        return self.game.to_state()
         
     def reset(self):
         self.game = snake_backend.GameOfSnake([(0,0), (0,1), (0,2)], hasFrontEnd=False)
@@ -39,15 +40,23 @@ class SnakeEnv(gym.Env):
 
     def render(self, mode='human', close=False):
         self.canvas.delete('all')
-        height, width = self.state().shape
+        height, width = self.state()[1].shape
+        print(f'height: {height}, width: {width}')
 
         for y in range(height):
             for x in range(width):
-                num = self.state()[y, x]
-                if num > 0:
-                    self.canvas.create_oval(x*30, y*30, x*30+30, y*30+30, fill = 'red')
-                elif num == -1:
+                num = self.state()[1][y, x]
+
+                if num == 10:
                     self.canvas.create_oval(x*30, y*30, x*30+30, y*30+30, fill = 'green')
+                elif num > 0:
+                    self.canvas.create_oval(x*30, y*30, x*30+30, y*30+30, fill = 'red')
+                elif num == -10:
+                    self.canvas.create_rectangle(x*30, y*30, x*30+30, y*30+30, fill = 'black')
+                    
+        hunger = self.state()[0]
+        self.canvas.create_rectangle(10, 10, 10 + hunger, 20, fill='yellow')
+
         self.root.update()
         
         

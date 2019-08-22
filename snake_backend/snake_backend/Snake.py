@@ -6,6 +6,18 @@ Frontend and Backend for the game snake, this file can be played as is by execut
 import tkinter as tk
 import numpy as np
 import random
+from collections import namedtuple
+
+
+from enum import Enum
+class Event(Enum):
+    """things that can happen every turn""" # not yet used
+    Wall = 1
+    Self = 2
+    Food = 3
+    Starve = 4
+    Nothing = 5
+
 
 class FrontEnd:
     """Frontend using Tkinter"""
@@ -52,7 +64,8 @@ class FrontEnd:
                 )
         
         
-        
+# Type alias for inforation that will be used by the neural network
+# SnakeState = namedtuple('SnakeState', 'hunger array')       
 
 class GameOfSnake:
     """Game logic for the game snake"""
@@ -65,11 +78,16 @@ class GameOfSnake:
         self.head = path[-1]
         self.X = X
         self.Y = Y
+        self.abyss = None # list of coordinates
+        self.hunger = 100
         self.done = False
         self.food = food or self.new_apple_position()
-        self.rewards = {'food': 100, 'dead': -100, 'survive': 1}
+        self.rewards = {'food': 100, 'dead': -100, 'survive': 1, 'abyss': -100, 'self_collide': -100, 'hunger': -10}
         
         self.frontend = FrontEnd(self.X, self.Y, 10, self.path, self.food) if hasFrontEnd else None
+        
+    def to_state(self):
+        return self.hunger, self.array()
         
     def array(self):
         """creates and array of the playing world, where -1 is the location of 
@@ -77,11 +95,19 @@ class GameOfSnake:
         result = np.zeros((self.X, self.Y), dtype=float)
         l = len(self.path)
         for i, (x, y) in enumerate(self.path):
-            result[x, y] = 0.5 + (i)*0.5/(l-1)# to make snake path values go down linearly
+            result[x, y] = 0.5 + (i)*0.5/(l-1)# to make snake path values go down linearly, so that we can see its direction
             
         food_x, food_y = self.food
-        result[food_x, food_y] = -1
+        result[food_x, food_y] = 10
         
+        return self.add_peremiter(result)
+
+    @staticmethod
+    def add_peremiter(arr):
+        """return same array but padded with -10s on all sides"""
+        x, y = arr.shape
+        result = np.full((x+2, y+2), -10, dtype=float)
+        result[1:-1, 1:-1] = arr
         return result
         
 
@@ -117,24 +143,32 @@ class GameOfSnake:
         self.turn += 1
             
         # check if no game over
-        if new_head[0] < 0 or new_head[0] >= self.X or new_head[1] < 0 or new_head[1] >= self.Y or new_head in self.path:
-            print(f'game over, turn {self.turn}, length {len(self.path)}')
+        if new_head[0] < 0 or new_head[0] >= self.X or new_head[1] < 0 or new_head[1] >= self.Y:
+            print('collided with perimeter')
+            self.done=True
+            reward += self.rewards['abyss']
+            return None, reward, self.done
+        elif new_head in self.path:
+            print('collided with self')
             self.done = True
-            reward += self.rewards['dead']
-            return self.array(), reward, self.done
-        elif self.turns_since_food > 50*len(self.path):
-            #no energy
+            reward += self.rewards['self_collide']
+            return None, reward, self.done
+        elif self.hunger < 1:
+            reward += self.rewards['hunger']
             self.done = True
+            return None, reward, self.done
         else:
             # still alive
             
-            reward += len(self.path)
+            self.hunger -= 1
+            reward += 1
             self.path.append(new_head)
             self.head = new_head
             
             # check if it encounters food
             if self.food == new_head:
                 self.turns_since_food = 0
+                self.hunger += self.X * self.Y 
             
                 self.food = self.new_apple_position()
                 reward += self.rewards['food']        
@@ -146,7 +180,7 @@ class GameOfSnake:
         if self.frontend is not None:
             self.frontend.draw(self.path, self.food)
         
-        return self.array(), reward, self.done
+        return self.to_state(), reward, self.done
 
             
     @staticmethod
