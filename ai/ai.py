@@ -17,7 +17,7 @@ import torch
 import torch.optim as optim
 import torch.nn.functional as F
 
-from ReplayMemory import ReplayMemory, Transition
+from ReplayMemory import ReplayMemory
 from DQN import DQN
 
 env = gym.make('snake-v0')
@@ -33,8 +33,8 @@ steps_done = 0 # ugly global counter
 BATCH_SIZE = 10
 GAMMA = 0.8
 EPS_START = 0.9
-EPS_END = 0.0
-EPS_DECAY = 100
+EPS_END = 0.005
+EPS_DECAY = 2000
 TARGET_UPDATE = 10  
 
 # Get number of actions from gym action space
@@ -88,18 +88,19 @@ episode_durations = []
 
 def optimize_model(memory, optimizer, batch_size= BATCH_SIZE):
     if len(memory) < batch_size:
+        print('not yet enough memory for replay')
         return
     transitions = memory.sample(BATCH_SIZE)
     
     for transition in transitions:
         hunger, world = transition.state
-        hunger = torch.Tensor([[hunger]]).to(device, dtype=torch.float) #ugly copy-paste..
+    
         
         Q_value = policy_net(world, hunger).gather(1, transition.action)
         Q_bellman = estimated_Q(transition.reward, transition.next_state)
         
         loss = F.smooth_l1_loss(Q_value, Q_bellman)
-        
+        print(f'loss: {loss}')
         # Optimize the model
         optimizer.zero_grad()
         loss.backward()
@@ -119,12 +120,23 @@ def estimated_Q(reward, next_state: tuple):
             # so no differentiation is needed here.
             next_expected_Q = target_net(next_state[1], next_state[0]).max(1)[0]
             return reward + GAMMA*next_expected_Q
+
+
+def take_step_(action, rendering=False):
+    next_state, reward, done, _ = env.step(action.item())
+    if next_state is not None:
+        next_state_tensor = torch.from_numpy(next_state[1]).unsqueeze(0).unsqueeze(0).to(device, dtype=torch.float)
+        hunger = torch.Tensor([[next_state[0]]]).to(device, dtype=torch.float)
+        next_state = hunger, next_state_tensor
+    if rendering:
+        env.render()
+        
+    reward = torch.tensor([reward], device=device)
+    return next_state, reward, done
     
+def main(num_episodes = 1_000_000):
     
-def main(
-        num_episodes = 1_000_000
-        ):
-    
+ 
     #scores = []
     for i_episode in range(num_episodes):
         # Initialize the environment and state
@@ -139,26 +151,25 @@ def main(
         for t in count():
             # Select and perform an action
             action = select_action(state)
+           
 
-            next_state, reward, done, _ = env.step(action.item())
-            if next_state is not None:
-                next_state_tensor = torch.from_numpy(next_state[1]).unsqueeze(0).unsqueeze(0).to(device, dtype=torch.float)
-                hunger = torch.Tensor([[hunger]]).to(device, dtype=torch.float)
-                next_state = hunger, next_state_tensor
-            if i_episode % 6 == 0:
-                env.render()
-
-            reward = torch.tensor([reward], device=device)
+            # let the snake take a step by performing {action}
+            next_state, reward, done = take_step_(action, rendering = i_episode % 8)
+           
 
             # Store the transition in memory
             memory.push(state, action, next_state, reward)
+            
 
             # Move to the next state
             state = next_state
 
             # Perform one step of the optimization (on the target network)
             optimize_model(memory, optimizer)
+         
+            
             if done:
+                # game over
                 episode_durations.append(t + 1)
                 break
         # Update the target network, copying all weights and biases in DQN

@@ -43,7 +43,7 @@ class ReplayMemory:
         """Saves a transition."""
         trans = Transition(*args)
         
-        if trans.reward == 100:
+        if trans.reward == 1:
             self.rewards.append(trans)
         elif trans.reward < 0:
             self.punishments.append(trans)
@@ -51,6 +51,7 @@ class ReplayMemory:
             self.neutral.append(trans)
             
         if len(self) > self.capacity:
+            # we remove the oldest memory from the longest buffer, to ceep the memory balanced
             self.longest_memory().pop(0)
             assert len(self) == self.capacity
 

@@ -23,11 +23,13 @@ ENV DISPLAY $DISPLAY
 
 RUN apt-get update && apt-get install -y libx11-6
 
-# copy all files and folders into docker image
-COPY . .
-
-# installing the snake backend as a python package
+# copy and install the snake backend as a python package
+COPY snake_backend ./snake_backend/
 RUN pip install -e ./snake_backend/
 
-# installing the openai gym environmnet as a python package
+# copy and install the openai gym environmnet as a python package
+COPY gym-snake ./gym-snake/
 RUN pip install -e ./gym-snake/
+
+Copy ai ./ai/
+

@@ -17,8 +17,21 @@ class Event(Enum):
     Food = 3
     Starve = 4
     Nothing = 5
-
-
+    
+    
+class Direction(Enum):
+    """steps the snake can make"""
+    Up = 0
+    Right = 1
+    Left = 2
+    Down = 3
+    
+    def vec(self):
+        """return unit vector where the first axis is down and the second axis is right"""
+        vector_dict = {0: np.array([-1,0]),  1: np.array([0,1]), 2: np.array([0,-1]), 3: np.array([1, 0])}
+        return vector_dict[self.value]
+      
+        
 class FrontEnd:
     """Frontend using Tkinter"""
     
@@ -49,14 +62,14 @@ class FrontEnd:
         """
         self.canvas.delete('all')
         
-        for x,y in path:
+        for y,x in path:
             self.canvas.create_oval(
                     x*self.unit, y*self.unit, 
                     x*self.unit+self.unit, y*self.unit+self.unit, 
                     fill = 'red'
                     )
             
-        fx, fy = food
+        fy, fx = food
         self.canvas.create_oval(
                 fx*self.unit, fy*self.unit, 
                 fx*self.unit+self.unit, fy*self.unit+self.unit, 
@@ -73,6 +86,7 @@ class GameOfSnake:
     def __init__(self, path, food=None, X = 6, Y = 6, hasFrontEnd=True):
         
         self.turn = 0
+        #self.orientation = Orientation.East # start of facing East
         self.turns_since_food = 0
         self.path = path
         self.head = path[-1]
@@ -82,7 +96,7 @@ class GameOfSnake:
         self.hunger = 100
         self.done = False
         self.food = food or self.new_apple_position()
-        self.rewards = {'food': 100, 'dead': -100, 'survive': 1, 'abyss': -100, 'self_collide': -100, 'hunger': -10}
+        self.rewards = {'food': 1, 'dead': -1, 'survive': 1, 'abyss': -1, 'self_collide': -1, 'hunger': -1}
         
         self.frontend = FrontEnd(self.X, self.Y, 10, self.path, self.food) if hasFrontEnd else None
         
@@ -98,7 +112,7 @@ class GameOfSnake:
             result[x, y] = 0.5 + (i)*0.5/(l-1)# to make snake path values go down linearly, so that we can see its direction
             
         food_x, food_y = self.food
-        result[food_x, food_y] = 10
+        result[food_x, food_y] = 0.2
         
         return self.add_peremiter(result)
 
@@ -106,7 +120,7 @@ class GameOfSnake:
     def add_peremiter(arr):
         """return same array but padded with -10s on all sides"""
         x, y = arr.shape
-        result = np.full((x+2, y+2), -10, dtype=float)
+        result = np.full((x+2, y+2), -1, dtype=float)
         result[1:-1, 1:-1] = arr
         return result
         
@@ -120,20 +134,18 @@ class GameOfSnake:
             return self.new_apple_position()
         return (x,y)        
 
-    def move_up(self, event):
-        self.step((0, -1))
-    def move_down(self, event):
-        self.step((0, 1))
+    def move_ahead(self, event):
+        self.step(Direction.Ahead)
     def move_right(self, event):
-        self.step((1, 0))
+        self.step(Direction.Right)
     def move_left(self, event):
-        self.step((-1, 0))
+        self.step(Direction.Left)
     
-    def step(self, direction):
+    def step(self, direction: Direction):
         """make a step, this method corresponds to the step method
         of openai gym environments"""
-        reward = 0
-        new_head = self.add_vec(self.head, direction)
+        
+        new_head = self.update_head(direction)
         
         
         if self.done:
@@ -146,22 +158,19 @@ class GameOfSnake:
         if new_head[0] < 0 or new_head[0] >= self.X or new_head[1] < 0 or new_head[1] >= self.Y:
             print('collided with perimeter')
             self.done=True
-            reward += self.rewards['abyss']
-            return None, reward, self.done
+            return None, self.rewards['abyss'], self.done
         elif new_head in self.path:
             print('collided with self')
             self.done = True
-            reward += self.rewards['self_collide']
-            return None, reward, self.done
+            return None, self.rewards['self_collide'], self.done
         elif self.hunger < 1:
-            reward += self.rewards['hunger']
             self.done = True
-            return None, reward, self.done
+            print('starved to death')
+            return None, self.rewards['hunger'], self.done
         else:
             # still alive
             
             self.hunger -= 1
-            reward += 1
             self.path.append(new_head)
             self.head = new_head
             
@@ -171,8 +180,9 @@ class GameOfSnake:
                 self.hunger += self.X * self.Y 
             
                 self.food = self.new_apple_position()
-                reward += self.rewards['food']        
+                reward = self.rewards['food']        
             else:
+                reward = 0
                 self.turns_since_food += 1
                 self.path.pop(0)   
             
@@ -183,13 +193,12 @@ class GameOfSnake:
         return self.to_state(), reward, self.done
 
             
-    @staticmethod
-    def add_vec(tuple1, tuple2):
-        """add two tuples as if they are vectors"""
-        a = tuple1[0] + tuple2[0]
-        b = tuple1[1] + tuple2[1]
-        return (a,b)
+    def update_head(self, direction: Direction):
+        #new_orientation = self.orientation.go(direction)
+        new_head = tuple(np.array(self.head) + direction.vec())
         
+        return new_head
+
    
     
     
@@ -198,8 +207,8 @@ def main():
       
     game = GameOfSnake([(0,0), (0,1), (0,2)])
     
-    game.frontend.root.bind('<Up>', game.move_up)
-    game.frontend.root.bind('<Down>', game.move_down)
+    game.frontend.root.bind('<Up>', game.move_ahead)
+    #game.frontend.root.bind('<Down>', game.move_down)
     game.frontend.root.bind('<Right>', game.move_right)
     game.frontend.root.bind('<Left>', game.move_left)
     game.frontend.root.mainloop()
