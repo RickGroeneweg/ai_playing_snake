@@ -30,7 +30,7 @@ class SnakeEnv(gym.Env):
         return self.game.to_state()
         
     def reset(self): 
-        self.game = snake_backend.GameOfSnake([(3,0), (3,1), (3,2)], food = (3+random.randint(0, 1), 3+random.randint(0, 1)), hasFrontEnd=False)
+        self.game = snake_backend.GameOfSnake([(3,0), (3,1), (3,2)], food = (3, 4), hasFrontEnd=False)
         self.action_space = spaces.Discrete(4)
         self.score = 0
 

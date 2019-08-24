@@ -30,7 +30,7 @@ print(f"using device: {device}")
 steps_done = 0 # ugly global counter
 
 # meta parameters
-BATCH_SIZE = 10
+BATCH_SIZE = 100
 GAMMA = 0.8
 EPS_START = 0.9
 EPS_END = 0.005
@@ -71,10 +71,10 @@ def _select_action_exploitation(state):
     hunger = torch.Tensor([[hunger]]).to(device, dtype=torch.float)
     
     with torch.no_grad():
-        #state = torch.from_numpy(env.state()).unsqueeze(0).unsqueeze(0).to(device, dtype=torch.float)
-        # t.max(1) will return largest column value of each row.
-        # second column on max result is index of where max element was
-        # found, so we pick action with the larger expected reward.
+        # t.max(1) will return 
+        #   [0]: largest column value of each row,and 
+        #   [1]: the index where this value was found
+        # so we pick action with the larger expected reward.
         return policy_net(tensor, hunger).max(1)[1].view(1, 1)
 
 def _select_action_exploration():
@@ -90,7 +90,10 @@ def optimize_model(memory, optimizer, batch_size= BATCH_SIZE):
     if len(memory) < batch_size:
         print('not yet enough memory for replay')
         return
-    transitions = memory.sample(BATCH_SIZE)
+    
+    rotating_k = random.randint(0, 3)
+    transitions = memory.sample(BATCH_SIZE, rotating_k)
+    loss_acc = 0
     
     for transition in transitions:
         hunger, world = transition.state
@@ -99,8 +102,11 @@ def optimize_model(memory, optimizer, batch_size= BATCH_SIZE):
         Q_value = policy_net(world, hunger).gather(1, transition.action)
         Q_bellman = estimated_Q(transition.reward, transition.next_state)
         
+
+        
+        
         loss = F.smooth_l1_loss(Q_value, Q_bellman)
-        print(f'loss: {loss}')
+        loss_acc += loss
         # Optimize the model
         optimizer.zero_grad()
         loss.backward()
@@ -108,8 +114,10 @@ def optimize_model(memory, optimizer, batch_size= BATCH_SIZE):
             param.grad.data.clamp_(-1, 1)
         optimizer.step()
     
+    print(f'average loss: {loss_acc/len(transitions)}')
+    
 def estimated_Q(reward, next_state: tuple):
-    reward = reward.to(dtype=torch.float)
+    reward = reward.to(dtype=torch.float).unsqueeze(0)
     if next_state is None:
         # the game has ended, so the Q value is just the reward
         return reward
@@ -134,13 +142,16 @@ def take_step_(action, rendering=False):
     reward = torch.tensor([reward], device=device)
     return next_state, reward, done
     
-def main(num_episodes = 1_000_000):
+def main(num_episodes = 10_000_000):
     
  
     #scores = []
     for i_episode in range(num_episodes):
+        rendering = i_episode % 50 == 0
         # Initialize the environment and state
         env.reset()
+        if rendering:
+            env.render()
     
         state = env.state()
         hunger, tens = state
@@ -154,7 +165,7 @@ def main(num_episodes = 1_000_000):
            
 
             # let the snake take a step by performing {action}
-            next_state, reward, done = take_step_(action, rendering = i_episode % 8)
+            next_state, reward, done = take_step_(action, rendering = rendering)
            
 
             # Store the transition in memory

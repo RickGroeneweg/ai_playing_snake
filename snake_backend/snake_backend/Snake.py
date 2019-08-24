@@ -23,12 +23,12 @@ class Direction(Enum):
     """steps the snake can make"""
     Up = 0
     Right = 1
-    Left = 2
-    Down = 3
+    Down = 2
+    Left = 3
     
     def vec(self):
         """return unit vector where the first axis is down and the second axis is right"""
-        vector_dict = {0: np.array([-1,0]),  1: np.array([0,1]), 2: np.array([0,-1]), 3: np.array([1, 0])}
+        vector_dict = {0: np.array([-1,0]),  1: np.array([0,1]), 3: np.array([0,-1]), 2: np.array([1, 0])}
         return vector_dict[self.value]
       
         
