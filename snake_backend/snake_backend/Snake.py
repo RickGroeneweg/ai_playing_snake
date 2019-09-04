@@ -76,9 +76,8 @@ class FrontEnd:
                 fill='green'
                 )
         
-        
-# Type alias for inforation that will be used by the neural network
-# SnakeState = namedtuple('SnakeState', 'hunger array')       
+    
+
 
 class GameOfSnake:
     """Game logic for the game snake"""
@@ -93,15 +92,12 @@ class GameOfSnake:
         self.X = X
         self.Y = Y
         self.abyss = None # list of coordinates
-        self.hunger = 100
         self.done = False
         self.food = food or self.new_apple_position()
-        self.rewards = {'food': 1, 'dead': -1, 'survive': 1, 'abyss': -1, 'self_collide': -1, 'hunger': -1}
+        self.rewards = {'food': 1, 'dead': -1, 'survive': 1, 'abyss': -1, 'self_collide': -1}
         
         self.frontend = FrontEnd(self.X, self.Y, 10, self.path, self.food) if hasFrontEnd else None
-        
-    def to_state(self):
-        return self.hunger, self.array()
+
         
     def array(self):
         """creates and array of the playing world, where -1 is the location of 
@@ -149,35 +145,26 @@ class GameOfSnake:
         
         
         if self.done:
-            print('game is already done')
             return None, 0, self.done
         
         self.turn += 1
             
         # check if no game over
         if new_head[0] < 0 or new_head[0] >= self.X or new_head[1] < 0 or new_head[1] >= self.Y:
-            print('collided with perimeter')
             self.done=True
-            return None, self.rewards['abyss'], self.done
+            return self.array(), self.rewards['abyss'], self.done
         elif new_head in self.path:
-            print('collided with self')
             self.done = True
-            return None, self.rewards['self_collide'], self.done
-        elif self.hunger < 1:
-            self.done = True
-            print('starved to death')
-            return None, self.rewards['hunger'], self.done
+            return self.array(), self.rewards['self_collide'], self.done
         else:
             # still alive
-            
-            self.hunger -= 1
+    
             self.path.append(new_head)
             self.head = new_head
             
             # check if it encounters food
             if self.food == new_head:
                 self.turns_since_food = 0
-                self.hunger += self.X * self.Y 
             
                 self.food = self.new_apple_position()
                 reward = self.rewards['food']        
@@ -190,7 +177,7 @@ class GameOfSnake:
         if self.frontend is not None:
             self.frontend.draw(self.path, self.food)
         
-        return self.to_state(), reward, self.done
+        return self.array(), reward, self.done
 
             
     def update_head(self, direction: Direction):
