@@ -4,6 +4,7 @@ Reinforcement learning script for Snake
 
 import random
 import math
+from math import sin
 from itertools import count
 
 
@@ -14,11 +15,13 @@ import gym_snake #s omehow we do need this import
 
 # pyTorch imports
 import torch
+import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
 from ReplayMemory import ReplayMemory
 from DQN import Q_Net, DQN_Agent
+from PG import PG_Agent
 
 env = gym.make('snake-v0')
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -36,92 +39,64 @@ TARGET_UPDATE = 10
 # Get number of actions from gym action space
 n_actions = env.action_space.n
 
-memory = ReplayMemory(10000, device)
+#memory = ReplayMemory(10000, device)
+#
+#agent = DQN_Agent(env.action_space.n, device, gamma=GAMMA, lr =0.01, env = env, memory=memory)
 
-agent = DQN_Agent(env.action_space.n, device, GAMMA, lr =0.01)
+# ugely copy-paste from DQN.py
+class Q_Net(nn.Module):
+    """neural network used by the DQN agent"""
+
+    def __init__(self, outputs):
+        super(Q_Net, self).__init__()
+        self.conv1 = nn.Conv2d(1, 12, kernel_size=3)
+        self.conv2 = nn.Conv2d(12, 12, kernel_size=3)
+        
+        
+        linear_input_size = 4*4*12
+        self.l1 = nn.Linear(linear_input_size, 100)
+        self.l2 = nn.Linear(100, 60)
+        self.l3 = nn.Linear(60, 30)
+        
+        self.softmax = nn.Softmax()
+        
+        # for each action, the head gives a probability of the agent taking the action
+        self.head = nn.Linear(30, outputs)
+        
+    def forward(self, x: torch.Tensor):   
+        x = x.unsqueeze(0).unsqueeze(0)
+        x = F.leaky_relu(self.conv1(x))
+        x = F.leaky_relu(self.conv2(x))
+        x_vector = x.view(x.size(0), -1)
+        
+      
+        x = F.relu(self.l1(x_vector))
+        x = F.relu(self.l2(x))
+        x = F.relu(self.l3(x))
+        x = self.head(x)
+        return self.softmax(x).squeeze(0).squeeze(0)
+
+pol_net = Q_Net(4)
+agent = PG_Agent(pol_net, device, env, discount_factor = 0.8, learning_rate =0.005)
 
 
-    
-
-
-def take_step_(action, state, rendering=False):
-    
-    next_state, reward, done, _ = env.step(action)
-    
-    if rendering:
-        env.render()
-    
-    assert state.shape == next_state.shape
-    memory.push(state, action, next_state, reward, done)
-    
-
-    return next_state, reward, done
-    
-def main(num_episodes = 10_000_000, learning_rate = 0.005, eps_init = 1.0):
-
-    # set learning rate of the optimizer.
-    for g in agent.optimizer.param_groups:
-        g['lr'] = learning_rate
-    eps_threshold = eps_init    
+def main(N_episodes = 100_000_000, learning_rate = 0.005):        
+    agent.update_learning_rate(learning_rate)
  
-    #scores = []
-    for i_episode in range(num_episodes):
-        eps_threshold = abs((1 - i_episode/num_episodes) * math.sin(0.001*i_episode))
-        rendering = i_episode % 200 == 0
-        if rendering:
-            print(f'***episode number: {i_episode}***')
-            print(f'epsilon threshold: {eps_threshold}')
-            agent.print_avg_loss()
-            
-            memory.print_action_distribution()        
+    # cycle through playing a game and optimizing
+    for i in range(N_episodes):
+        # make the threshold go down over time, but fluctuate
+        #ε_threshold = abs((1 - i/N_episodes) * sin(0.001*i))
         
-        
-        # Initialize the environment and state
-        reward_acc = 0
-        state = env.reset()
-        
-        assert state.shape == (8,8)
+        render: bool = i % 1000==0
 
-        if rendering:
-            env.render()
+        # play one game
+        agent.train_episode(render=render)
+        # train the parameters of the agent's policy net
+        #agent.optimize()       
         
-        for t in count():
-            # Select and perform 
-            # If we are rendering, then we do not want random exploration
-            action : int = agent.select_action(state, 0 if rendering else eps_threshold)
-            
+        agent.end_episode(i, summary = render)
 
-            # let the snake take a step by performing {action}
-            next_state, reward, done = take_step_(action, state, rendering = rendering)
-           
-            assert next_state.shape == (8,8)
-
-            reward_acc += reward     
-            
-
-            # Move to the next state
-            state = next_state         
-            
-            if done:
-                # game over
-                if rendering: 
-                    print(f'accumulated reward: {reward_acc}')
-                break
-            
-            if t > abs(reward_acc*100) +12:
-                break
-        
-        
-        sample = memory.sample(BATCH_SIZE, k=random.randint(0,4))
-
-
-        agent.optimize(sample)
-        
-        
-        
-        # Update the target network, copying all weights and biases in DQN
-        if i_episode % TARGET_UPDATE == 0:
-            agent.target_net.load_state_dict(agent.policy_net.state_dict())
 
     print('Complete')
     env.close()

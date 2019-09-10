@@ -2,6 +2,9 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+from torch.distributions.categorical import Categorical
+
+from Abstract_Agent import Agent
 
 from collections import deque
 
@@ -22,6 +25,8 @@ class Q_Net(nn.Module):
         self.l1 = nn.Linear(linear_input_size, 50)
         self.l2 = nn.Linear(50, 20)
         
+        
+        # the head gives an estimation of the Q-value for each possible action
         self.head = nn.Linear(20, outputs)
 
     # Called with either one element to determine next action, or a batch
@@ -36,11 +41,27 @@ class Q_Net(nn.Module):
       
         x = F.relu(self.l1(x_vector))
         x = F.relu(self.l2(x))
-        return self.head(x)
+        # added softmax, not tested!
+        x = self.head(x)
+
+        return x
     
     
-class DQN_Agent:
-    def __init__(self, n_actions, device, gamma, lr):
+class DQN_Agent(Agent):
+    """
+    A reinforcement learning agent, that operates by the DQN algorithm. Later I adjusted this agent to operate by the Double DQN algorithm.
+    There seem to be multiple explanations of how the Double DQN algorithm works, that contradict each other slightly. Here I have gone for the one
+    that is most simple to me:
+        
+        There are two neural nets, as in the vanilla DQN, but they are used slightly differently. The reason for this, is that in the vanilla 
+        DQN algoritm, during optimization, the target net is used to assess how good an action is, and to select the best action (by taking the maximum). 
+        This results in overestimation of how good this action actually is. In this version od the Double DQN, we use the policy net to select the best action,
+        and the target net to assess how good this is.
+        
+        A simple way to think about this is: The policy net is used for taking decisions and selecting actions. The target net is only used to
+        assess how good a certain action is (i.e. estimate Q(s,a) )
+    """
+    def __init__(self, n_actions, device, gamma, lr, env, memory):
         self.device = device
         self.target_net = Q_Net(n_actions).to(self.device)
         self.policy_net = Q_Net(n_actions).to(self.device)
@@ -48,6 +69,9 @@ class DQN_Agent:
         self.n_actions = n_actions
         self.gamma = gamma
         self.actions = deque(maxlen=200)
+        self.env = env
+        self.memory = memory
+        self.target_net_update = 50
         
         # set the weights of the target net to be the same as the policy net
         self.target_net.load_state_dict(self.policy_net.state_dict())
@@ -62,7 +86,8 @@ class DQN_Agent:
         avg_loss = sum(self.losses)/len(self.losses)
         print(f'average loss: {avg_loss}')
 
-    def optimize(self, batch):
+    def optimize(self, batch_size):
+        batch = self.memory.sample(batch_size, k=random.randint(0,4))
         self.optimizer.zero_grad()
         
         loss = self.compute_loss(batch)
@@ -71,42 +96,17 @@ class DQN_Agent:
             param.grad.data.clamp_(-1,1)
         self.optimizer.step()       
         
-    def select_action(self, state, eps_threshold):
+    def select_action(self, state ,eps_threshold=0.2): # TODO: add functionality for stochastic policy and for epsilon-greede policy
         """      
         if the sample is below the threshold, we do exploration. With threshhold of 0 there is no exploration
         """
-        
-        sample = random.random()
-        
-        if sample < eps_threshold:
-            return self._select_action_exploration()
-        
-        # else 
-        action = self._select_action_exploitation(state)
-        self.actions.append(action)
-        return action
-
-    def _select_action_exploitation(self, state):
-        
         state = torch.from_numpy(state).to(self.device, dtype = torch.float).unsqueeze(0).unsqueeze(0)
         
-        assert state.shape == (1, 1, 8,8), f"state.shape: {state.shape}"
+        action = self._select_action_epsilon_greedily(state, eps_threshold)
         
-        with torch.no_grad():
-            # t.max(1) will return 
-            #   [0]: largest column value of each row,and 
-            #   [1]: the index where this value was found
-            # so we pick action with the larger expected reward. 
-            #print(self.policy_net(state))
-            policy_output =self.policy_net(state)
-            action = policy_output.max(1)[1].view(1, 1)
-            #print(action.item())
-            #print(f'selecting action, net: {net(state)}')
-            return action.item()
-
-    def _select_action_exploration(self):
-        """just return a random action from the action space"""
-        return random.randrange(self.n_actions) 
+        self.actions.append(action)
+        return action
+    
     
     def compute_temporal_difference_Qs(self, batch):
         """
@@ -131,7 +131,6 @@ class DQN_Agent:
         # if the game ended, then there is no Q_next, so we multipy with 0
         Q_next *= (1-dones)
         
-        
         return Q_curr, Q_next
     
     def compute_loss(self, batch):
@@ -152,4 +151,65 @@ class DQN_Agent:
                 )        
         
         self.losses.append(loss)        
-        return loss        
+        return loss 
+    
+    def take_step(self, action, state, render=False):
+        
+    
+        next_state, reward, done, _ = self.env.step(action)
+    
+        if render:
+           self.env.render()
+    
+        return next_state, reward, done
+       
+    def update_target_net(self):
+        """copy weights from the policy net to the target net"""
+        policy_net_weights = self.policy_net.state_dict
+        self.target_net.load_state_dict(policy_net_weights)
+    
+    def end_episode(self, i):
+        if i % self.target_net_update == 0:
+            self.update_target_net()
+    
+    def train_episode(self, render = False, ε_threshold=0.2):  
+        """let the agent play one game"""
+        state = self.env.reset()
+        t=0
+        reward_acc = 0
+        done = False
+        
+        while not done:
+            if render:
+                self.env.render()
+            # Select and perform 
+            # If we are rendering, then we do not want random exploration
+            action : int = self.select_action(state, 
+                                               ε_threshold=0 if render else ε_threshold)
+            
+
+            # let the snake take a step by performing {action}
+            next_state, reward, done = self.take_step(action, state, render = render)
+            t += 1
+            reward_acc += reward
+            
+            self.memory.push(state, action, next_state, reward, done)
+            assert next_state.shape == (8,8)
+
+                 
+            
+            # Move to the next state
+            state = next_state         
+            
+            if t > abs(reward_acc*50) +12:
+                # the snake has been playing awhile but has not been making much progress
+                break
+          
+
+    
+    
+    
+    
+    
+    
+    
