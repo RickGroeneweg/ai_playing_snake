@@ -25,6 +25,9 @@ class Agent:
         executes at the end of an episode, some algorithms have some unfinished 
         things or do some updates here.        
         """
+        new_lr = max(0.0005, self.learning_rate*0.999)
+        self.update_learning_rate(new_lr)
+        
         if summary:
             print(f'***episode number: {i}***')
             #print(f'ε_threshold: {ε_threshold}')

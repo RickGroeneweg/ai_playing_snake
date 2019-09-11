@@ -82,42 +82,67 @@ class FrontEnd:
 class GameOfSnake:
     """Game logic for the game snake"""
     
-    def __init__(self, path, food=None, X = 6, Y = 6, hasFrontEnd=True):
+    def __init__(self, path = None, food=None, X = 5, Y = 5, hasFrontEnd=True):
         
         self.turn = 0
-        #self.orientation = Orientation.East # start of facing East
-        self.turns_since_food = 0
-        self.path = path
-        self.head = path[-1]
         self.X = X
         self.Y = Y
+        #self.orientation = Orientation.East # start of facing East
+        self.turns_since_food = 0
+        #print('set path')
+        self.path = self.random_start_path()
+        #print(f'path: {self.path}')
+        self.head = self.path[-1]
+
         self.abyss = None # list of coordinates
         self.done = False
         self.food = food or self.new_apple_position()
-        self.rewards = {'food': 1, 'dead': -1, 'survive': 1, 'abyss': -1, 'self_collide': -1}
+        self.rewards = {'food': 100, 'dead': -5, 'survive': 0.1, 'abyss': -5, 'self_collide': -5}
         
         self.frontend = FrontEnd(self.X, self.Y, 10, self.path, self.food) if hasFrontEnd else None
 
+    def random_square_next_to(self, x,y, excluding = []):
+        x_, y_ =random.choice([(x+1, y), (x-1, y), (x, y+1), (x, y-1)])
+        
+        if (x_, y_) in excluding:
+            # try again
+            return self.random_square_next_to(x,y, excluding=excluding)
+        elif x_ < 0 or y_ <0 or x_ >self.X-1 or y_ >self.Y-1:
+            # try again
+            return self.random_square_next_to(x,y, excluding=excluding)
+        else:
+            return x_, y_
+
+    def random_start_path(self):
+        x_0 = random.randint(0, self.X-1)
+        y_0 = random.randint(0, self.Y-1)
+        
+        x_1, y_1 = self.random_square_next_to(x_0, y_0, excluding = [(x_0, y_0)])
+        x_2, y_2 = self.random_square_next_to(x_1, y_1, excluding = [(x_0, y_0), (x_1, y_1)])
+        result = [(x_2, y_2), (x_1, y_1), (x_0, y_0)]
+        #print(result)
+        return result
+
         
     def array(self):
-        """creates and array of the playing world, where -1 is the location of 
-        the food, and the snake body is encoded with floats between 1 (the head) and 0.5"""
-        result = np.zeros((self.X, self.Y), dtype=float)
-        l = len(self.path)
-        for i, (x, y) in enumerate(self.path):
-            result[x, y] = 0.5 + (i)*0.5/(l-1)# to make snake path values go down linearly, so that we can see its direction
-            
-        food_x, food_y = self.food
-        result[food_x, food_y] = 0.2
+        """
+        create and array of the playing world
+        """
+        # 3 chanels
+        result = np.zeros((3, self.X, self.Y), dtype=float)
         
-        return self.add_peremiter(result)
-
-    @staticmethod
-    def add_peremiter(arr):
-        """return same array but padded with -10s on all sides"""
-        x, y = arr.shape
-        result = np.full((x+2, y+2), -1, dtype=float)
-        result[1:-1, 1:-1] = arr
+        for (x, y) in self.path:
+            # [0]th chanel is the snake
+            result[0, x, y] = 1 
+            
+        # [1]th chanel the head of the snake
+        head_x, head_y = self.head
+        result[1, head_x, head_y] = 1
+            
+        # [2]th chanel the food
+        food_x, food_y = self.food
+        result[2, food_x, food_y] = 1
+        
         return result
         
 
@@ -141,7 +166,7 @@ class GameOfSnake:
         """make a step, this method corresponds to the step method
         of openai gym environments"""
         
-        new_head = self.update_head(direction)
+        new_head = self.get_new_head(direction)
         
         
         if self.done:
@@ -169,7 +194,7 @@ class GameOfSnake:
                 self.food = self.new_apple_position()
                 reward = self.rewards['food']        
             else:
-                reward = 0
+                reward = self.rewards['survive']
                 self.turns_since_food += 1
                 self.path.pop(0)   
             
@@ -180,7 +205,7 @@ class GameOfSnake:
         return self.array(), reward, self.done
 
             
-    def update_head(self, direction: Direction):
+    def get_new_head(self, direction: Direction):
         #new_orientation = self.orientation.go(direction)
         new_head = tuple(np.array(self.head) + direction.vec())
         

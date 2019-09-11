@@ -49,49 +49,54 @@ class Q_Net(nn.Module):
 
     def __init__(self, outputs):
         super(Q_Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 12, kernel_size=3)
-        self.conv2 = nn.Conv2d(12, 12, kernel_size=3)
+        self.conv1 = nn.Conv2d(3, 5, kernel_size=3)
         
         
-        linear_input_size = 4*4*12
-        self.l1 = nn.Linear(linear_input_size, 100)
-        self.l2 = nn.Linear(100, 60)
-        self.l3 = nn.Linear(60, 30)
+        
+        linear_input_size = 3*3*5
+        self.l1 = nn.Linear(linear_input_size, 20)
+        self.l2 = nn.Linear(20, 10)
+ 
+        self.head = nn.Linear(10, outputs)
         
         self.softmax = nn.Softmax()
         
-        # for each action, the head gives a probability of the agent taking the action
-        self.head = nn.Linear(30, outputs)
+        
         
     def forward(self, x: torch.Tensor):   
-        x = x.unsqueeze(0).unsqueeze(0)
+        x = x
         x = F.leaky_relu(self.conv1(x))
-        x = F.leaky_relu(self.conv2(x))
         x_vector = x.view(x.size(0), -1)
         
       
         x = F.relu(self.l1(x_vector))
         x = F.relu(self.l2(x))
-        x = F.relu(self.l3(x))
         x = self.head(x)
-        return self.softmax(x).squeeze(0).squeeze(0)
+        return self.softmax(x)
+    
+    def forward_1(self, x):
+        "forward a sample of only one"
+        x = x.unsqueeze(0)
+        x = self.forward(x)
+        return x.squeeze(0)
 
-pol_net = Q_Net(4)
-agent = PG_Agent(pol_net, device, env, discount_factor = 0.8, learning_rate =0.005)
+policy_net = Q_Net(4)
+agent = PG_Agent(policy_net, device, env, discount_factor = 0.6, learning_rate =0.001)
 
 
-def main(N_episodes = 100_000_000, learning_rate = 0.005):        
-    agent.update_learning_rate(learning_rate)
+def main(N_episodes = 5_000_000):        
+    #agent.update_learning_rate(learning_rate)
  
     # cycle through playing a game and optimizing
+    eps = 0.2
     for i in range(N_episodes):
         # make the threshold go down over time, but fluctuate
-        #ε_threshold = abs((1 - i/N_episodes) * sin(0.001*i))
+        eps = abs((1 - i/N_episodes) * sin(0.001*i))*0.5
         
-        render: bool = i % 1000==0
+        render: bool = (i % 400 ==0 and eps <0.1)
 
         # play one game
-        agent.train_episode(render=render)
+        agent.train_episode(render=render, eps=eps)
         # train the parameters of the agent's policy net
         #agent.optimize()       
         
